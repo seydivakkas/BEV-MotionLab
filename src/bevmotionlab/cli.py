@@ -12,6 +12,7 @@ from .quality import assess_calibration
 from .video import validate_pts, validate_detection_timestamps
 from .schema import Detection, load_calibration
 from .speed import estimate_speed
+from .uncertainty import interval_uncertainties
 from .visualize import render_bev_svg
 
 
@@ -43,9 +44,14 @@ def calibrate(calibration_path, *, robust=False, seed=42):
 
 
 def analyze(calibration_path, detections_path, output, *, camera_id, robust=False, seed=42, max_gap_s=2.,
-            require_quality_gate=False, ffprobe_json_path=None, pts_tolerance_s=.005, pts_offset_s=0.):
+            require_quality_gate=False, ffprobe_json_path=None, pts_tolerance_s=.005, pts_offset_s=0.,
+            uncertainty_trials=0, pixel_std_px=.5, landmark_std_px=.5, timestamp_std_s=0.):
     out=Path(output)
     if not camera_id: raise ValueError('camera_id required')
+    if type(uncertainty_trials) is not int or uncertainty_trials < 0 or (uncertainty_trials and uncertainty_trials < 10) or uncertainty_trials > 5000:
+        raise ValueError('UNCERTAINTY_TRIALS_INVALID')
+    if robust and uncertainty_trials:
+        raise ValueError('ROBUST_UNCERTAINTY_UNSUPPORTED: no conditional robust-refit model')
     if out.resolve() in (Path(calibration_path).resolve(),Path(detections_path).resolve()):
         raise ValueError('output path must not replace input')
     H,report,cal=calibrate(calibration_path,robust=robust,seed=seed)
@@ -77,7 +83,7 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
                  'y_m':None if xy is None else float(xy[1]),'confidence':d.confidence,'status':status}
             projected.append(rec)
             if xy is not None:
-                history.setdefault(key,[]).append((d.timestamp_s,xy))
+                history.setdefault(key,[]).append((d.timestamp_s,xy,uv))
             else:
                 segment_for_track[d.track_id]=segment_for_track.get(d.track_id,0)+1
             if status!='VALID': issues.append({'track_id':d.track_id,'time_s':d.timestamp_s,'reason':status})
@@ -89,6 +95,17 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
     for (tid,segment), seq in sorted(history.items()):
         results=estimate_speed([v[0] for v in seq],[v[1] for v in seq],max_gap_s=max_gap_s)
         rows.extend({'track_id':tid,'segment':segment,**r} for r in results)
+    uncertainty_rows=[]
+    if uncertainty_trials:
+        fit=[p for p in cal['correspondences'] if p['split']=='fit']
+        uncertainty_rows=interval_uncertainties(history,
+            [p['image_uv_px'] for p in fit], [p['world_xy_m'] for p in fit],
+            trials=uncertainty_trials,seed=seed,pixel_std_px=pixel_std_px,
+            landmark_std_px=landmark_std_px,timestamp_std_s=timestamp_std_s,
+            max_gap_s=max_gap_s)
+        if len(uncertainty_rows)!=len(rows) or any(
+            item['status']=='UNCERTAINTY_NOT_IDENTIFIABLE' for item in uncertainty_rows):
+            raise ValueError('UNCERTAINTY_GATE_BLOCKED: invalid/missing interval uncertainty')
     out.mkdir(parents=True,exist_ok=True)
     files=[]
     for name, data, keys in [('projected_tracks.csv',projected,['frame','timestamp_s','track_id','x_m','y_m','confidence','status']),
@@ -97,11 +114,20 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
         with file.open('w',encoding='utf-8',newline='') as f:
             w=csv.DictWriter(f,fieldnames=keys);w.writeheader();w.writerows(data)
         files.append(file)
+    if uncertainty_trials:
+        filename=out/'speed_uncertainty.csv'
+        with filename.open('w',newline='',encoding='utf-8') as f:
+            fields=['track_id','segment','start_s','end_s','status','median_kmh','p025_kmh','p975_kmh','valid_trials','failed_trials']
+            writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(uncertainty_rows)
+        files.append(filename)
     for name,obj in [('calibration_report.json',report),('flags.json',issues),
                      ('timestamp_audit.json',pts_audit or {'status':'NOT_CHECKED','reason':'ffprobe PTS not supplied'}),
                      ('run_config.json',{'schema_version':'1.0','camera_id':camera_id,'seed':seed,'robust':robust,'max_gap_s':max_gap_s,'calibration_sha256':hashlib.sha256(Path(calibration_path).read_bytes()).hexdigest(),'detections_sha256':hashlib.sha256(Path(detections_path).read_bytes()).hexdigest(),
                        'ffprobe_sha256':hashlib.sha256(Path(ffprobe_json_path).read_bytes()).hexdigest() if ffprobe_json_path else None,
-                       'require_quality_gate':require_quality_gate})]:
+                        'require_quality_gate':require_quality_gate,
+                       'uncertainty_model':{'trials':uncertainty_trials,'pixel_std_px':pixel_std_px,
+                                            'landmark_std_px':landmark_std_px,'timestamp_std_s':timestamp_std_s,
+                                            'systematic_bias_included':False} if uncertainty_trials else None})]:
         path=out/name;_write_json(path,obj);files.append(path)
     try:
         svg=render_bev_svg(out/'projected_tracks.csv',out/'bev_trajectory.svg')
@@ -117,13 +143,13 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description='BEV-MotionLab offline geometry backend v0.1')
     sub=parser.add_subparsers(dest='command',required=True)
     c=sub.add_parser('calibrate');c.add_argument('--calibration',required=True);c.add_argument('--out',required=True);c.add_argument('--robust',action='store_true');c.add_argument('--seed',type=int,default=42)
-    a=sub.add_parser('analyze');a.add_argument('--calibration',required=True);a.add_argument('--detections',required=True);a.add_argument('--camera-id',required=True);a.add_argument('--out',required=True);a.add_argument('--robust',action='store_true');a.add_argument('--seed',type=int,default=42);a.add_argument('--max-gap-s',type=float,default=2.);a.add_argument('--require-quality-gate',action='store_true');a.add_argument('--ffprobe-json');a.add_argument('--pts-tolerance-s',type=float,default=.005);a.add_argument('--pts-offset-s',type=float,default=0.)
+    a=sub.add_parser('analyze');a.add_argument('--calibration',required=True);a.add_argument('--detections',required=True);a.add_argument('--camera-id',required=True);a.add_argument('--out',required=True);a.add_argument('--robust',action='store_true');a.add_argument('--seed',type=int,default=42);a.add_argument('--max-gap-s',type=float,default=2.);a.add_argument('--require-quality-gate',action='store_true');a.add_argument('--ffprobe-json');a.add_argument('--pts-tolerance-s',type=float,default=.005);a.add_argument('--pts-offset-s',type=float,default=0.);a.add_argument('--uncertainty-trials',type=int,default=0);a.add_argument('--pixel-std-px',type=float,default=.5);a.add_argument('--landmark-std-px',type=float,default=.5);a.add_argument('--timestamp-std-s',type=float,default=0.)
     args=parser.parse_args(argv)
     if args.command=='calibrate':
         _, report, _=calibrate(args.calibration,robust=args.robust,seed=args.seed)
         path=Path(args.out);path.parent.mkdir(parents=True,exist_ok=True);_write_json(path,report)
         print(json.dumps({'calibration_report':str(path),'fit_rmse_px':report['fit_rmse_px']}))
     else:
-        print(json.dumps(analyze(args.calibration,args.detections,args.out,camera_id=args.camera_id,robust=args.robust,seed=args.seed,max_gap_s=args.max_gap_s,require_quality_gate=args.require_quality_gate,ffprobe_json_path=args.ffprobe_json,pts_tolerance_s=args.pts_tolerance_s,pts_offset_s=args.pts_offset_s)))
+        print(json.dumps(analyze(args.calibration,args.detections,args.out,camera_id=args.camera_id,robust=args.robust,seed=args.seed,max_gap_s=args.max_gap_s,require_quality_gate=args.require_quality_gate,ffprobe_json_path=args.ffprobe_json,pts_tolerance_s=args.pts_tolerance_s,pts_offset_s=args.pts_offset_s,uncertainty_trials=args.uncertainty_trials,pixel_std_px=args.pixel_std_px,landmark_std_px=args.landmark_std_px,timestamp_std_s=args.timestamp_std_s)))
 
 if __name__=='__main__':main()
