@@ -2,7 +2,7 @@
 
 **An offline-first camera-geometry laboratory for ground-plane projection, bird's-eye-view trajectories and uncertainty-aware physical speed estimation.**
 
-> **Status: DESIGN / README-FIRST.** This repository describes a proposed implementation. Unless subsequent commits establish otherwise, it contains no validated speed-estimation engine, measured accuracy, CI results or field dataset. All example commands below are **target CLI contracts**, not runnable today.
+> **Status (feature/backend-v0.1): runnable offline backend research build, not a validated real-camera speed-measurement system.** Synthetic CLI and unit tests are implemented. Field accuracy, final backend acceptance and frontend remain **HOLD**. See [`docs/BACKEND_V010.md`](docs/BACKEND_V010.md).
 
 ## 1. What problem does the project solve?
 
@@ -289,18 +289,16 @@ BEV-MotionLab/
 └── .github/workflows/ci.yml
 ```
 
-## 13. Target CLI examples — **not yet implemented**
+## 13. Working backend v0.1 CLI (synthetic-only)
 
 ```powershell
-# Following commands describe the intended future interface only.
-py -m bevmotionlab calibrate --config examples/calibration.json --out runs/calibration
-py -m bevmotionlab project --calibration runs/calibration/model.json --tracks examples/tracks.csv --out runs/projected
-py -m bevmotionlab speed --tracks runs/projected/projected_tracks.csv --out runs/speed
-py -m bevmotionlab simulate --config examples/synthetic_scene.json --seed 42 --out runs/synthetic
-py -m bevmotionlab evaluate --run runs/synthetic --out runs/evaluation
+py -m pip install -e .
+py -m unittest discover -s tests -v
+py -m bevmotionlab calibrate --calibration examples/synthetic_calibration.json --out runs/calibration.json
+py -m bevmotionlab analyze --calibration examples/synthetic_calibration.json --detections examples/synthetic_tracks.csv --camera-id synthetic_cam --out runs/demo
 ```
 
-Do not copy these commands as evidence of a working program until corresponding code and tests exist.
+These commands have run against **synthetic** inputs. Their existence does **not** establish actual calibrated-camera accuracy. Raw video reading, full uncertainty per interval, lens correction and independently measured field validation remain future work.
 
 ## 14. Technical stack and deployment policy
 
