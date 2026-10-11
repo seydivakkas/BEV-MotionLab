@@ -36,3 +36,38 @@ def read_ffprobe_pts(video_path, *, executable='ffprobe', timeout_s=30):
          'frame=best_effort_timestamp_time,pkt_pts_time','-of','json',str(path)]
     result=subprocess.run(cmd,check=True,timeout=timeout_s,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     return validate_pts(json.loads(result.stdout))
+
+
+def validate_detection_timestamps(records, pts_report, *, tolerance_s=0.005, offset_s=0.):
+    """Audit frame-to-PTS correspondence, never replacing supplied timestamps.
+
+    `offset_s` must be explicitly known; no automatic FPS/time-origin guessing.
+    Multiple tracks may share the same frame and PTS, but may not disagree.
+    """
+    import math
+    if not math.isfinite(tolerance_s) or tolerance_s < 0:
+        raise ValueError('invalid PTS tolerance')
+    if not math.isfinite(offset_s):
+        raise ValueError('non-finite PTS time-origin offset')
+    timestamps = pts_report['timestamps_s']
+    audited = 0
+    seen = {}
+    max_error = 0.
+    for record in records:
+        frame, t = record['frame'], record['timestamp_s']
+        if type(frame) is not int or not 0 <= frame < len(timestamps) or not math.isfinite(t):
+            raise ValueError('PTS_FRAME_OUT_OF_RANGE_OR_INVALID')
+        if frame in seen and not math.isclose(t, seen[frame], abs_tol=1e-9, rel_tol=0):
+            raise ValueError('PTS_CONFLICTING_TIMES_FOR_FRAME')
+        seen[frame] = t
+        err = abs(t - (timestamps[frame] + offset_s))
+        if err > tolerance_s + 1e-12:
+            raise ValueError(f'PTS_MISMATCH frame={frame} error_s={err:.9g}')
+        max_error = max(max_error, err)
+        audited += 1
+    if not audited:
+        raise ValueError('PTS_NO_DETECTIONS')
+    return {'status':'MATCHED','checked_observations':audited,
+            'distinct_frames':len(seen),'max_abs_error_s':max_error,
+            'tolerance_s':tolerance_s,'explicit_offset_s':offset_s,
+            'source':'ffprobe frame presentation timestamps'}
