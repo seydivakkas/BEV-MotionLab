@@ -9,6 +9,7 @@ import numpy as np
 from . import __version__
 from .geometry import fit_dlt, fit_ransac, holdout_report, project
 from .quality import assess_calibration
+from .pose_audit import audit_pose_file
 from .video import validate_pts, validate_detection_timestamps
 from .schema import Detection, load_calibration
 from .speed import estimate_speed
@@ -45,7 +46,7 @@ def calibrate(calibration_path, *, robust=False, seed=42):
 
 def analyze(calibration_path, detections_path, output, *, camera_id, robust=False, seed=42, max_gap_s=2.,
             require_quality_gate=False, ffprobe_json_path=None, pts_tolerance_s=.005, pts_offset_s=0.,
-            uncertainty_trials=0, pixel_std_px=.5, landmark_std_px=.5, timestamp_std_s=0.):
+            uncertainty_trials=0, pixel_std_px=.5, landmark_std_px=.5, timestamp_std_s=0., pose_audit_json_path=None, pose_max_rmse_px=2., pose_max_individual_px=4.):
     out=Path(output)
     if not camera_id: raise ValueError('camera_id required')
     if type(uncertainty_trials) is not int or uncertainty_trials < 0 or (uncertainty_trials and uncertainty_trials < 10) or uncertainty_trials > 5000:
@@ -59,6 +60,13 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
     if require_quality_gate and not report['quality_gate']['passed']:
         raise ValueError('CALIBRATION_QUALITY_BLOCKED: '+','.join(report['quality_gate']['reasons']))
     if cal.get('pixel_convention')!='undistorted': raise ValueError('lens model unsupported')
+    pose_audit = None
+    if pose_audit_json_path is not None:
+        pose_audit = audit_pose_file(cal, pose_audit_json_path,
+                                    max_rmse_px=pose_max_rmse_px,
+                                    max_individual_px=pose_max_individual_px)
+        if not pose_audit['passed']:
+            raise ValueError('POSE_AUDIT_BLOCKED: '+','.join(pose_audit['reasons']))
     history={}; projected=[]; issues=[]; segment_for_track={}; last_seen={}
     with Path(detections_path).open(encoding='utf-8-sig',newline='') as f:
         for row in csv.DictReader(f):
@@ -120,10 +128,11 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
             fields=['track_id','segment','start_s','end_s','status','median_kmh','p025_kmh','p975_kmh','valid_trials','failed_trials']
             writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(uncertainty_rows)
         files.append(filename)
-    for name,obj in [('calibration_report.json',report),('flags.json',issues),
+    for name,obj in [('calibration_report.json',report),('pose_audit.json',pose_audit or {'status':'NOT_CHECKED','reason':'independent fixed-landmark evidence not supplied'}),('flags.json',issues),
                      ('timestamp_audit.json',pts_audit or {'status':'NOT_CHECKED','reason':'ffprobe PTS not supplied'}),
                      ('run_config.json',{'schema_version':'1.0','camera_id':camera_id,'seed':seed,'robust':robust,'max_gap_s':max_gap_s,'calibration_sha256':hashlib.sha256(Path(calibration_path).read_bytes()).hexdigest(),'detections_sha256':hashlib.sha256(Path(detections_path).read_bytes()).hexdigest(),
                        'ffprobe_sha256':hashlib.sha256(Path(ffprobe_json_path).read_bytes()).hexdigest() if ffprobe_json_path else None,
+                       'pose_audit_sha256':hashlib.sha256(Path(pose_audit_json_path).read_bytes()).hexdigest() if pose_audit_json_path else None,
                         'require_quality_gate':require_quality_gate,
                        'uncertainty_model':{'trials':uncertainty_trials,'pixel_std_px':pixel_std_px,
                                             'landmark_std_px':landmark_std_px,'timestamp_std_s':timestamp_std_s,
@@ -143,13 +152,13 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description='BEV-MotionLab offline geometry backend v0.1')
     sub=parser.add_subparsers(dest='command',required=True)
     c=sub.add_parser('calibrate');c.add_argument('--calibration',required=True);c.add_argument('--out',required=True);c.add_argument('--robust',action='store_true');c.add_argument('--seed',type=int,default=42)
-    a=sub.add_parser('analyze');a.add_argument('--calibration',required=True);a.add_argument('--detections',required=True);a.add_argument('--camera-id',required=True);a.add_argument('--out',required=True);a.add_argument('--robust',action='store_true');a.add_argument('--seed',type=int,default=42);a.add_argument('--max-gap-s',type=float,default=2.);a.add_argument('--require-quality-gate',action='store_true');a.add_argument('--ffprobe-json');a.add_argument('--pts-tolerance-s',type=float,default=.005);a.add_argument('--pts-offset-s',type=float,default=0.);a.add_argument('--uncertainty-trials',type=int,default=0);a.add_argument('--pixel-std-px',type=float,default=.5);a.add_argument('--landmark-std-px',type=float,default=.5);a.add_argument('--timestamp-std-s',type=float,default=0.)
+    a=sub.add_parser('analyze');a.add_argument('--calibration',required=True);a.add_argument('--detections',required=True);a.add_argument('--camera-id',required=True);a.add_argument('--out',required=True);a.add_argument('--robust',action='store_true');a.add_argument('--seed',type=int,default=42);a.add_argument('--max-gap-s',type=float,default=2.);a.add_argument('--require-quality-gate',action='store_true');a.add_argument('--ffprobe-json');a.add_argument('--pts-tolerance-s',type=float,default=.005);a.add_argument('--pts-offset-s',type=float,default=0.);a.add_argument('--uncertainty-trials',type=int,default=0);a.add_argument('--pixel-std-px',type=float,default=.5);a.add_argument('--landmark-std-px',type=float,default=.5);a.add_argument('--timestamp-std-s',type=float,default=0.);a.add_argument('--pose-audit-json');a.add_argument('--pose-max-rmse-px',type=float,default=2.);a.add_argument('--pose-max-individual-px',type=float,default=4.)
     args=parser.parse_args(argv)
     if args.command=='calibrate':
         _, report, _=calibrate(args.calibration,robust=args.robust,seed=args.seed)
         path=Path(args.out);path.parent.mkdir(parents=True,exist_ok=True);_write_json(path,report)
         print(json.dumps({'calibration_report':str(path),'fit_rmse_px':report['fit_rmse_px']}))
     else:
-        print(json.dumps(analyze(args.calibration,args.detections,args.out,camera_id=args.camera_id,robust=args.robust,seed=args.seed,max_gap_s=args.max_gap_s,require_quality_gate=args.require_quality_gate,ffprobe_json_path=args.ffprobe_json,pts_tolerance_s=args.pts_tolerance_s,pts_offset_s=args.pts_offset_s,uncertainty_trials=args.uncertainty_trials,pixel_std_px=args.pixel_std_px,landmark_std_px=args.landmark_std_px,timestamp_std_s=args.timestamp_std_s)))
+        print(json.dumps(analyze(args.calibration,args.detections,args.out,camera_id=args.camera_id,robust=args.robust,seed=args.seed,max_gap_s=args.max_gap_s,require_quality_gate=args.require_quality_gate,ffprobe_json_path=args.ffprobe_json,pts_tolerance_s=args.pts_tolerance_s,pts_offset_s=args.pts_offset_s,uncertainty_trials=args.uncertainty_trials,pixel_std_px=args.pixel_std_px,landmark_std_px=args.landmark_std_px,timestamp_std_s=args.timestamp_std_s, pose_audit_json_path=args.pose_audit_json,pose_max_rmse_px=args.pose_max_rmse_px,pose_max_individual_px=args.pose_max_individual_px)))
 
 if __name__=='__main__':main()
