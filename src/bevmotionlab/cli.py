@@ -15,6 +15,7 @@ from .video import validate_pts, validate_detection_timestamps
 from .schema import Detection, load_calibration
 from .speed import estimate_speed
 from .uncertainty import interval_uncertainties
+from .interval_validity import audit_speed_intervals
 from .visualize import render_bev_svg
 
 
@@ -47,11 +48,15 @@ def calibrate(calibration_path, *, robust=False, seed=42):
 
 def analyze(calibration_path, detections_path, output, *, camera_id, robust=False, seed=42, max_gap_s=2.,
             require_quality_gate=False, ffprobe_json_path=None, pts_tolerance_s=.005, pts_offset_s=0.,
-            uncertainty_trials=0, pixel_std_px=.5, landmark_std_px=.5, timestamp_std_s=0., pose_audit_json_path=None, pose_max_rmse_px=2., pose_max_individual_px=4., camera3d_model_json_path=None, camera3d_max_residual_m=.15):
+            uncertainty_trials=0, pixel_std_px=.5, landmark_std_px=.5, timestamp_std_s=0., pose_audit_json_path=None, pose_max_rmse_px=2., pose_max_individual_px=4., camera3d_model_json_path=None, camera3d_max_residual_m=.15, contact_max_height_m=None, max_height_speed_bias_kmh=None):
     out=Path(output)
     if not camera_id: raise ValueError('camera_id required')
     if type(uncertainty_trials) is not int or uncertainty_trials < 0 or (uncertainty_trials and uncertainty_trials < 10) or uncertainty_trials > 5000:
         raise ValueError('UNCERTAINTY_TRIALS_INVALID')
+    if (contact_max_height_m is None) != (max_height_speed_bias_kmh is None):
+        raise ValueError('HEIGHT_BIAS_BOTH_PARAMETERS_REQUIRED')
+    if contact_max_height_m is not None and camera3d_model_json_path is None:
+        raise ValueError('HEIGHT_BIAS_REQUIRES_AUDITED_3D_CAMERA')
     if robust and uncertainty_trials:
         raise ValueError('ROBUST_UNCERTAINTY_UNSUPPORTED: no conditional robust-refit model')
     if out.resolve() in (Path(calibration_path).resolve(),Path(detections_path).resolve()):
@@ -69,11 +74,13 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
         if not pose_audit['passed']:
             raise ValueError('POSE_AUDIT_BLOCKED: '+','.join(pose_audit['reasons']))
     camera3d_audit = None
+    camera3d_model = None
     if camera3d_model_json_path is not None:
         independent = [p for p in cal['correspondences'] if p['split']=='holdout']
         if len(independent) < 4:
             raise ValueError('CAMERA3D_INSUFFICIENT_INDEPENDENT_HOLDOUT')
         model = json.loads(Path(camera3d_model_json_path).read_text(encoding='utf-8'))
+        camera3d_model = model
         if model['lens_calibration_id'] != cal['lens_calibration_id']:
             raise ValueError('CAMERA3D_LENS_PROVENANCE_MISMATCH')
         # Pre-undistorted calibration coordinates are never re-undistorted.
@@ -121,6 +128,12 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
     for (tid,segment), seq in sorted(history.items()):
         results=estimate_speed([v[0] for v in seq],[v[1] for v in seq],max_gap_s=max_gap_s)
         rows.extend({'track_id':tid,'segment':segment,**r} for r in results)
+    height_audit = None
+    if contact_max_height_m is not None:
+        height_audit = audit_speed_intervals(camera3d_model,history,rows,
+            maximum_height_m=contact_max_height_m,max_bias_kmh=max_height_speed_bias_kmh)
+        if not height_audit['accepted']:
+            raise ValueError('HEIGHT_BIAS_BLOCKED: valid speed interval exceeds declared risk budget')
     uncertainty_rows=[]
     if uncertainty_trials:
         fit=[p for p in cal['correspondences'] if p['split']=='fit']
@@ -140,6 +153,12 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
         with file.open('w',encoding='utf-8',newline='') as f:
             w=csv.DictWriter(f,fieldnames=keys);w.writeheader();w.writerows(data)
         files.append(file)
+    if height_audit is not None:
+        filename=out/'speed_height_risk.csv'
+        with filename.open('w',newline='',encoding='utf-8') as f:
+            fields=['track_id','segment','start_s','end_s','status','speed_bias_upper_bound_kmh','speed_lower_bound_kmh','speed_upper_bound_kmh']
+            writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(height_audit['rows'])
+        files.append(filename)
     if uncertainty_trials:
         filename=out/'speed_uncertainty.csv'
         with filename.open('w',newline='',encoding='utf-8') as f:
@@ -147,13 +166,13 @@ def analyze(calibration_path, detections_path, output, *, camera_id, robust=Fals
             writer=csv.DictWriter(f,fieldnames=fields);writer.writeheader();writer.writerows(uncertainty_rows)
         files.append(filename)
     for name,obj in [('calibration_report.json',report),('pose_audit.json',pose_audit or {'status':'NOT_CHECKED','reason':'independent fixed-landmark evidence not supplied'}),
-                     ('camera3d_audit.json',camera3d_audit or {'status':'NOT_CHECKED','reason':'camera 3D extrinsics and independent ground holdouts not supplied'}),('flags.json',issues),
+                     ('camera3d_audit.json',camera3d_audit or {'status':'NOT_CHECKED','reason':'camera 3D extrinsics and independent ground holdouts not supplied'}),('height_bias_audit.json', {k:v for k,v in height_audit.items() if k!='rows'} if height_audit is not None else {'status':'NOT_CHECKED','reason':'height envelope not supplied'}),('flags.json',issues),
                      ('timestamp_audit.json',pts_audit or {'status':'NOT_CHECKED','reason':'ffprobe PTS not supplied'}),
                      ('run_config.json',{'schema_version':'1.0','camera_id':camera_id,'seed':seed,'robust':robust,'max_gap_s':max_gap_s,'calibration_sha256':hashlib.sha256(Path(calibration_path).read_bytes()).hexdigest(),'detections_sha256':hashlib.sha256(Path(detections_path).read_bytes()).hexdigest(),
                        'ffprobe_sha256':hashlib.sha256(Path(ffprobe_json_path).read_bytes()).hexdigest() if ffprobe_json_path else None,
                        'pose_audit_sha256':hashlib.sha256(Path(pose_audit_json_path).read_bytes()).hexdigest() if pose_audit_json_path else None,
                        'camera3d_model_sha256':hashlib.sha256(Path(camera3d_model_json_path).read_bytes()).hexdigest() if camera3d_model_json_path else None,
-                        'require_quality_gate':require_quality_gate,
+                        'require_quality_gate':require_quality_gate,'contact_max_height_m':contact_max_height_m,'max_height_speed_bias_kmh':max_height_speed_bias_kmh,
                        'uncertainty_model':{'trials':uncertainty_trials,'pixel_std_px':pixel_std_px,
                                             'landmark_std_px':landmark_std_px,'timestamp_std_s':timestamp_std_s,
                                             'systematic_bias_included':False} if uncertainty_trials else None})]:
@@ -172,13 +191,13 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description='BEV-MotionLab offline geometry backend v0.1')
     sub=parser.add_subparsers(dest='command',required=True)
     c=sub.add_parser('calibrate');c.add_argument('--calibration',required=True);c.add_argument('--out',required=True);c.add_argument('--robust',action='store_true');c.add_argument('--seed',type=int,default=42)
-    a=sub.add_parser('analyze');a.add_argument('--calibration',required=True);a.add_argument('--detections',required=True);a.add_argument('--camera-id',required=True);a.add_argument('--out',required=True);a.add_argument('--robust',action='store_true');a.add_argument('--seed',type=int,default=42);a.add_argument('--max-gap-s',type=float,default=2.);a.add_argument('--require-quality-gate',action='store_true');a.add_argument('--ffprobe-json');a.add_argument('--pts-tolerance-s',type=float,default=.005);a.add_argument('--pts-offset-s',type=float,default=0.);a.add_argument('--uncertainty-trials',type=int,default=0);a.add_argument('--pixel-std-px',type=float,default=.5);a.add_argument('--landmark-std-px',type=float,default=.5);a.add_argument('--timestamp-std-s',type=float,default=0.);a.add_argument('--pose-audit-json');a.add_argument('--pose-max-rmse-px',type=float,default=2.);a.add_argument('--pose-max-individual-px',type=float,default=4.);a.add_argument('--camera3d-model-json');a.add_argument('--camera3d-max-residual-m',type=float,default=.15)
+    a=sub.add_parser('analyze');a.add_argument('--calibration',required=True);a.add_argument('--detections',required=True);a.add_argument('--camera-id',required=True);a.add_argument('--out',required=True);a.add_argument('--robust',action='store_true');a.add_argument('--seed',type=int,default=42);a.add_argument('--max-gap-s',type=float,default=2.);a.add_argument('--require-quality-gate',action='store_true');a.add_argument('--ffprobe-json');a.add_argument('--pts-tolerance-s',type=float,default=.005);a.add_argument('--pts-offset-s',type=float,default=0.);a.add_argument('--uncertainty-trials',type=int,default=0);a.add_argument('--pixel-std-px',type=float,default=.5);a.add_argument('--landmark-std-px',type=float,default=.5);a.add_argument('--timestamp-std-s',type=float,default=0.);a.add_argument('--pose-audit-json');a.add_argument('--pose-max-rmse-px',type=float,default=2.);a.add_argument('--pose-max-individual-px',type=float,default=4.);a.add_argument('--camera3d-model-json');a.add_argument('--camera3d-max-residual-m',type=float,default=.15);a.add_argument('--contact-max-height-m',type=float);a.add_argument('--max-height-speed-bias-kmh',type=float)
     args=parser.parse_args(argv)
     if args.command=='calibrate':
         _, report, _=calibrate(args.calibration,robust=args.robust,seed=args.seed)
         path=Path(args.out);path.parent.mkdir(parents=True,exist_ok=True);_write_json(path,report)
         print(json.dumps({'calibration_report':str(path),'fit_rmse_px':report['fit_rmse_px']}))
     else:
-        print(json.dumps(analyze(args.calibration,args.detections,args.out,camera_id=args.camera_id,robust=args.robust,seed=args.seed,max_gap_s=args.max_gap_s,require_quality_gate=args.require_quality_gate,ffprobe_json_path=args.ffprobe_json,pts_tolerance_s=args.pts_tolerance_s,pts_offset_s=args.pts_offset_s,uncertainty_trials=args.uncertainty_trials,pixel_std_px=args.pixel_std_px,landmark_std_px=args.landmark_std_px,timestamp_std_s=args.timestamp_std_s, pose_audit_json_path=args.pose_audit_json,pose_max_rmse_px=args.pose_max_rmse_px,pose_max_individual_px=args.pose_max_individual_px,camera3d_model_json_path=args.camera3d_model_json,camera3d_max_residual_m=args.camera3d_max_residual_m)))
+        print(json.dumps(analyze(args.calibration,args.detections,args.out,camera_id=args.camera_id,robust=args.robust,seed=args.seed,max_gap_s=args.max_gap_s,require_quality_gate=args.require_quality_gate,ffprobe_json_path=args.ffprobe_json,pts_tolerance_s=args.pts_tolerance_s,pts_offset_s=args.pts_offset_s,uncertainty_trials=args.uncertainty_trials,pixel_std_px=args.pixel_std_px,landmark_std_px=args.landmark_std_px,timestamp_std_s=args.timestamp_std_s, pose_audit_json_path=args.pose_audit_json,pose_max_rmse_px=args.pose_max_rmse_px,pose_max_individual_px=args.pose_max_individual_px,camera3d_model_json_path=args.camera3d_model_json,camera3d_max_residual_m=args.camera3d_max_residual_m,contact_max_height_m=args.contact_max_height_m,max_height_speed_bias_kmh=args.max_height_speed_bias_kmh)))
 
 if __name__=='__main__':main()
