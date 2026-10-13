@@ -1,0 +1,8 @@
+{"track_id": "vehicle-1", "timestamp_s": 0.0, "u": 40, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "A", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}
+{"track_id": "vehicle-1", "timestamp_s": 0.1, "u": 50, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "A", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}
+{"track_id": "vehicle-1", "timestamp_s": 0.2, "u": 60, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "A", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}
+{"track_id": "vehicle-1", "timestamp_s": 0.3, "u": 60, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "A", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS", "occluded": true}
+{"track_id": "vehicle-1", "timestamp_s": 0.4, "u": 70, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "A", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}
+{"track_id": "vehicle-1", "timestamp_s": 0.5, "u": 80, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "A", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}
+{"track_id": "vehicle-1", "timestamp_s": 0.6, "u": 80, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "B", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}
+{"track_id": "vehicle-1", "timestamp_s": 0.7, "u": 85, "v": 50, "cov_uv": [[0.04, 0], [0, 0.04]], "contact_is_ground": true, "segment": "B", "camera_id": "SYNTHETIC_CAM", "lens_calibration_id": "SYNTHETIC_LENS"}

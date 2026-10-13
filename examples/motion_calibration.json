@@ -1,0 +1,94 @@
+{
+  "fit_pixel_px": [
+    [
+      0,
+      0
+    ],
+    [
+      100,
+      0
+    ],
+    [
+      100,
+      100
+    ],
+    [
+      0,
+      100
+    ],
+    [
+      50,
+      20
+    ],
+    [
+      30,
+      90
+    ]
+  ],
+  "fit_world_m": [
+    [
+      3.0,
+      5.0
+    ],
+    [
+      8.0,
+      5.0
+    ],
+    [
+      8.0,
+      13.0
+    ],
+    [
+      3.0,
+      13.0
+    ],
+    [
+      5.5,
+      6.6
+    ],
+    [
+      4.5,
+      12.2
+    ]
+  ],
+  "holdout_pixel_px": [
+    [
+      20,
+      20
+    ],
+    [
+      80,
+      20
+    ],
+    [
+      20,
+      80
+    ],
+    [
+      80,
+      80
+    ]
+  ],
+  "holdout_world_m": [
+    [
+      4.0,
+      6.6
+    ],
+    [
+      7.0,
+      6.6
+    ],
+    [
+      4.0,
+      11.4
+    ],
+    [
+      7.0,
+      11.4
+    ]
+  ],
+  "camera_id": "SYNTHETIC_CAM",
+  "lens_calibration_id": "SYNTHETIC_LENS",
+  "measurement_provenance": "synthetic independent measured-surrogate points",
+  "pixel_convention": "undistorted"
+}
