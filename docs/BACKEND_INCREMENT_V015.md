@@ -1,0 +1,9 @@
+# Backend v0.1.5 — Explicit 3-D camera-ground geometry (DRAFT/HOLD)
+
+- Implemented independent `camera3d` model validator for finite camera matrix `K`, proper rotation `R_cw`, camera center in metres, plane Z=0 and explicit lens provenance.
+- Raw distorted pixel coordinates can be undistorted with a numerical Brown–Conrady k1,k2,k3,p1,p2 inversion **only when** the caller identifies raw distortion. Already-undistorted landmarks are never passed through the inverse twice.
+- The pixel ray must hit the plane in front of camera. Horizon-facing / invalid projection, inverted rotation, unrecognized lens and geometry mismatch fail closed.
+- `analyze(..., camera3d_model_json_path=...)` adds an **opt-in** strict 3-D check against **at least four independent holdout** ground markers, records `camera3d_audit.json`, includes model SHA-256 in run config and outputs manifest. Camera model and calibration lens IDs must match, and the audit completes before any output directory creation.
+- `--camera3d-model-json` and `--camera3d-max-residual-m` mirror the API. Existing calibration-only path remains valid for backward compatibility.
+- Synthetic demonstrations do not establish actual ground-planarity, contact point, lens parameter accuracy, camera motion between samples, surveyed ground truth or systematic bias completeness.
+- **Open acceptance blockers:** out-of-plane object movement detection, persistent camera pose monitoring, representative occlusion/gap/crossing risk suites, uncertainty with systematic calibration/lens bias, packaging/performance/license and final synthetic E2E thresholds. Field video LAST.

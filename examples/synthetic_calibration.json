@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "camera_id": "synthetic_cam",
+  "resolution_px": [
+    800,
+    600
+  ],
+  "coordinate_frame": {
+    "units": "m",
+    "origin": "synthetic_zero",
+    "x_axis": "east",
+    "y_axis": "north"
+  },
+  "pixel_convention": "undistorted",
+  "lens_calibration_id": "synthetic_identity",
+  "measurement_provenance": "SYNTHETIC_FIXTURE_NOT_REAL",
+  "timestamp_source": "synthetic",
+  "calibrated_at_utc": "2026-10-11T12:00:00Z",
+  "valid_roi_uv_px": [
+    [
+      100,
+      100
+    ],
+    [
+      700,
+      550
+    ]
+  ],
+  "correspondences": [
+    {
+      "id": "A",
+      "image_uv_px": [
+        200.0,
+        200.0
+      ],
+      "world_xy_m": [
+        0.0,
+        0.0
+      ],
+      "split": "fit"
+    },
+    {
+      "id": "B",
+      "image_uv_px": [
+        600.0,
+        200.0
+      ],
+      "world_xy_m": [
+        8.0,
+        0.0
+      ],
+      "split": "fit"
+    },
+    {
+      "id": "C",
+      "image_uv_px": [
+        200.0,
+        450.0
+      ],
+      "world_xy_m": [
+        0.0,
+        5.0
+      ],
+      "split": "fit"
+    },
+    {
+      "id": "D",
+      "image_uv_px": [
+        600.0,
+        450.0
+      ],
+      "world_xy_m": [
+        8.0,
+        5.0
+      ],
+      "split": "fit"
+    },
+    {
+      "id": "E",
+      "image_uv_px": [
+        400.0,
+        330.0
+      ],
+      "world_xy_m": [
+        4.0,
+        2.6000000000000005
+      ],
+      "split": "fit"
+    },
+    {
+      "id": "F",
+      "image_uv_px": [
+        300.0,
+        350.0
+      ],
+      "world_xy_m": [
+        2.0,
+        3.0
+      ],
+      "split": "fit"
+    },
+    {
+      "id": "G",
+      "image_uv_px": [
+        350.0,
+        400.0
+      ],
+      "world_xy_m": [
+        3.0,
+        4.0
+      ],
+      "split": "holdout"
+    },
+    {
+      "id": "H",
+      "image_uv_px": [
+        520.0,
+        280.0
+      ],
+      "world_xy_m": [
+        6.4,
+        1.6000000000000005
+      ],
+      "split": "holdout"
+    }
+  ]
+}

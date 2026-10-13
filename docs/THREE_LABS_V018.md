@@ -1,0 +1,5 @@
+# BEV-MotionLab v0.1.8 opt-in covariance propagation
+
+New `covariance_projection` applies the analytically derived *image pixel to world metre* homography Jacobian to covariance: P_xy=J P_uv J^T and computes conditional 95% ellipse eigen-axes, horizon singularity and max-axis validity gate. This is a first-order/local approximation conditioned on a correct homography and undistorted pixel convention. It does NOT include lens uncertainty, shared filter cross-time covariance, systematic calibration, unknown height/off-plane biases or legal speed evidence.
+
+`telemetry_stage` is a JSONL streaming adapter for the synthetic inter-project demo only. It rejects speed when a track is unconfirmed, observed pixel projection is invalid, or the frame gap is too large. Its difference-of-positions speed covariance treats adjacent positions as independent for illustrative output: complete filter cross-time correlations are an open engineering requirement. Default H is an illustrative synthetic scale, not a real camera calibration. Backend acceptance remains HOLD.
